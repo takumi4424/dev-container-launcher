@@ -1,0 +1,398 @@
+#!/bin/bash -eu
+#
+# Copyright (c) 2020 Takumi Kodama
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+here="$(cd $(dirname $0); pwd)"
+
+function main() {
+    # read configs from launch_dev_container.cfg
+    read_config image_tag        false
+    read_config image_tag_nvidia false
+    read_config build_trg        false
+    read_config build_trg_nvidia false
+    read_config build_ctx        false
+    read_config volumes          true
+    read_config run_cmd          true
+
+    # parse argument
+    # - args[]:     option and arguments for this script
+    # - run_cmd[]:  replace ${run_cmd[@]} if [- [RUN_COMMAND [ARG]...]] are given
+    # - run_args[]: option and arguments for 'docker run' command
+    # - bld_args[]: option and arguments for 'docker build' command
+    parse_args "$@"
+
+    # '-h', '--help'
+    # display help text
+    if read_arg h help none; then print_usage; echo; print_help; exit 0; fi
+
+    # '-c [CMD]', '--command [CMD]'
+    # replace 'docker' command
+    docker_cmd=docker
+    if read_arg c command required; then
+        if [[ -z ${opt_arg} ]]; then print_error "The option argument for '-c' or '--command' must not be empty."; fi
+        docker_cmd=${opt_arg}
+    fi
+
+}
+
+function read_config() {
+    local config_file="${here}/launch_dev_container.cfg"
+    local i=0
+    if [[ ! -f ${config_file} ]]; then
+        : # TODO: fatal error
+    fi
+    # initialize config
+    if $2; then eval $1=\(\); else eval $1=""; fi
+    # read all line starting with '$1='
+    while read line; do
+        if $2; then
+            eval $1+=\(\"\${line:$((${#1}+1))}\"\)
+        else
+            eval $1=\"\${line:$((${#1}+1))}\"
+        fi
+    done < <(iconv -f sjis "${config_file}" | grep -E "^$1=")
+    return 0
+}
+
+# separate all arguments into args, cmds, run_opts, bld_opts
+function parse_args() {
+    local tmp_cmd
+    local sep=0
+    args=()     # arguments for this script
+    tmp_cmd=()  # command arguments for the container
+    run_opts=() # options for the 'docker run' command
+    bld_opts=() # options for the 'docker build' command
+    for arg in "$@"; do
+        if   [[ ${arg} == "-" ]];   then sep=1;
+        elif [[ ${arg} == "--" ]];  then sep=2;
+        elif [[ ${arg} == "---" ]]; then sep=3;
+        elif [[ ${sep-0} -eq 0 ]]; then args+=("${arg}");
+        elif [[ ${sep-0} -eq 1 ]]; then tmp_cmd+=("${arg}");
+        elif [[ ${sep-0} -eq 2 ]]; then run_opts+=("${arg}");
+        elif [[ ${sep-0} -eq 3 ]]; then bld_opts+=("${arg}");
+        fi
+    done
+    # save the length of arguments
+    nargs=${#args[@]}
+    # replace $run_cmd with $tmp_cmd if it is not empty
+    if (( ${#tmp_cmd[@]} > 0 )); then
+        run_cmd=()
+        for cmd in "${tmp_cmd[@]+"${tmp_cmd[@]}"}"; do
+            run_cmd+=("${cmd}")
+        done
+    fi
+    return 0
+}
+
+opt_arg=
+has_opt_arg=
+# Checks if the argument contains $1 or $2 option.
+# The option argument will be stored in $opt_arg.
+# @param $1 short option or '?' if there is no short option
+# @param $2 long option or '?' if there is no long option
+# @param $3 'none', 'option' or 'required'
+# @return 0 if the $1 or $2 is in arguments, 1 other wise
+function read_arg() {
+    # check specification
+    if [[ ! $1 =~ ^[a-zA-Z\?]$ ]];                      then echo "the 1st argument of read_arg() must be [a-zA-Z]. (please contact developer)";                   exit 127; fi
+    if [[ ! $2 =~ ^(\?|[a-zA-Z0-9][\-_a-zA-Z0-9]*)$ ]]; then echo "the 2nd argument of read_arg() must be [a-zA-Z0-9][\-_a-zA-Z0-9]*. (please contact developer)"; exit 127; fi
+    if [[ ! $3 =~ ^(none|option|required)$ ]];          then echo "the 3rd argument of read_arg() must be (none|option|required). (please contact developer)";     exit 127; fi
+    # init variables
+    opt_arg=
+    has_opt_arg=false
+    local i
+    local short=true
+    # check all arguments
+    for ((i=0; i<${nargs}; i++)); do
+        if [[ -z ${args[i]+a} ]]; then
+            continue
+        elif [[ $1 != "?" ]] && [[ ${args[i]} =~ ^-([a-zA-Z]*)$1([a-zA-Z]*)$ ]]; then
+            # short option found
+            if ((${#BASH_REMATCH[1]} + ${#BASH_REMATCH[2]} == 0)); then unset args[$i];
+            else args[$i]="-${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; fi
+        elif [[ $2 != "?" ]] && [[ ${args[i]} == "--$2" ]]; then
+            # long option found
+            unset args[$i]
+            short=false
+        else
+            continue
+        fi
+        # no argument required
+        if [[ $3 == "none" ]]; then return 0; fi
+        # check next argument
+        ((i++))
+        if [[ -z ${args[i]+a} ]] || [[ ${args[i]} =~ ^(-[a-zA-Z]+|--[a-zA-Z0-9][\-_a-zA-Z0-9]*)$ ]]; then
+            # there is no next argument or next argument is option
+            if [[ $3 == "option" ]]; then return 0;
+            elif ${short}; then printerror "args[$i]: option '-$1' requires an argument.";
+            else                printerror "args[$i]: option '--$2' requires an argument."; fi
+        fi
+        # there is option argument
+        has_opt_arg=true
+        opt_arg="${args[i]}"
+        unset args[$i]
+        return 0
+    done
+    # option not found
+    return 1
+}
+
+function print_usage() {
+    local usage_text
+    cat << EOF
+usage: start_dev_container [OPTION]...
+                           [- [RUN_COMMAND [ARG]...]]
+                           [-- [RUN_OPTION]...]
+                           [--- [BUILD_OPTION]...]
+EOF
+    return 0
+}
+
+function print_help() {
+    if [ "$(echo ${LANG}  | cut -c 1-5)" != 'ja_JP' ]; then
+        cat << EOF
+Launch the development environment container.
+
+  -h, --help         Display this help and exit
+  -   [CMD [ARG]...] docker run ... <image> CMD ARG...
+  --  [RUN_OPT]...   docker run ... RUN_OPT... <image> ...
+  --- [BLD_OPT]...   docker build ... BLD_OPT... -t <image> ...
+  -b, --build        Force build docker image
+  -B, --build-only   Don't run container, only build
+  -c, --command CMD  Command to run instead of 'docker' (e.g. 'sudo docker')
+  -d, --detach       Run container in background and print container ID
+      --disable-itd  Disable default '-itd' options
+      --disable-vol  Disable default volume options
+  -e, --echo         Print build/run command to be executed with arguments
+  -E, --echo-only    Print build/run command instead of executing it (debug)
+  -i, --interactive  Keep STDIN open even if not attached
+  -m, --mintty       Set as mintty mode
+      --no-buildkit  Disable 'DOCKER_BUILDKIT=1' for 'docker build'
+      --rm           Automatically remove the container when it exits
+  -t, --tty          Allocate a pseudo-TTY
+  -u, --user         Run container with current user (Only for Linux)
+  -x, --x11          Add options to connect with host's X11 server
+EOF
+    else
+        cat << EOF
+開発環境コンテナを立ち上げます．
+
+  -h, --help         このヘルプテキストを表示します
+  -   [CMD [ARG]...] docker run ... <image> CMD ARG...
+  --  [RUN_OPT]...   docker run ... RUN_OPT... <image> ...
+  --- [BLD_OPT]...   docker build ... BLD_OPT... -t <image> ...
+  -b, --build        イメージのビルドを強制します
+  -B, --build-only   イメージのビルドを強制し，コンテナの起動をスキップします
+  -c, --command CMD  'docker'の代替コマンドを指定します(例：'sudo docker')
+  -d, --detach       バックグラウンドで実行し新しいコンテナIDを表示します
+      --disable-itd  デフォルトで追加される'-itd'オプションを無効化します
+      --disable-vol  デフォルトで追加されるボリュームオプションを無効化します
+  -e, --echo         実行するコマンドを引数と共に表示します．
+  -E, --echo-only    コマンドを実行する代わりに表示します(デバッグ用)
+  -i, --interactive  コンテナのSTDINにアタッチする
+  -m, --mintty       minttyモードで実行します
+      --no-buildkit  ビルド時の'DOCKER_BUILDKIT=1'を無効化します
+      --rm           コンテナの実行後に自動で削除します
+  -t, --tty          疑似ターミナル(pseudo-TTY)を割り当てます
+  -u, --user [HOME]  現在のユーザでコンテナを立ち上げます(Linux用)
+  -x, --x11          ホストのX11サーバに接続するためのオプションを追加します
+EOF
+    fi
+    return 0
+}
+
+# prints the given text and the usage text and exit with code 1.
+# usage:
+#     print_error "message"
+# @param $1 (option) text to print
+function print_error() {
+    if [ $# -ge 1 ]; then echo "error: $1"; fi
+    echo "See 'start_dev_container --help'."
+    echo
+    print_usage
+    exit 1
+}
+
+
+main "$@"
+exit 0
+
+################################################################################
+##                                                                            ##
+## Development Container start up script for UNIX                             ##
+##                                                                            ##
+## If you want to use -u or --user option, you should add:                    ##
+##     RUN <'sudo' installation command>                                      ##
+##     RUN echo "%<your group> ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers        ##
+## into your Dockerfile.                                                      ##
+## Examples (install 'sudo'):                                                 ##
+##     RUN apt install -y sudo                                                ##
+##     RUN yum install -y sudo                                                ##
+##     RUN apk add sudo                                                       ##
+## Examples (add your group to sudoers):                                      ##
+##     RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers                ##
+##     RUN echo "%takumi ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers              ##
+##     RUN echo "ALL ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers                  ##
+## You can check which group you belong to by running:                        ##
+##     $ groups                                                               ##
+## in your host machine.                                                      ##
+##                                                                            ##
+################################### Configs ####################################
+################################################################################
+
+if [[ -z ${image_tag-} ]]; then
+    echo "error: image_tag must not be empty."
+    exit 127
+fi
+
+
+
+
+# # separate all arguments into args, cmds, run_opts, bld_opts
+# args=()     # arguments for this script
+# cmds=()     # command arguments for the container
+# run_opts=() # options for the 'docker run' command
+# bld_opts=() # options for the 'docker build' command
+# for arg in "$@"; do
+#     if   [[ ${arg} == "-" ]];   then sep=1;
+#     elif [[ ${arg} == "--" ]];  then sep=2;
+#     elif [[ ${arg} == "---" ]]; then sep=3;
+#     elif [[ ${sep-0} -eq 0 ]]; then args+=("${arg}");
+#     elif [[ ${sep-0} -eq 1 ]]; then cmds+=("${arg}");
+#     elif [[ ${sep-0} -eq 2 ]]; then run_opts+=("${arg}");
+#     elif [[ ${sep-0} -eq 3 ]]; then bld_opts+=("${arg}");
+#     fi
+# done
+# nargs=${#args[@]}
+
+# check if the 'nvidia-docker' command exists
+has_nvidia_docker=false
+if command -v nvidia-docker > /dev/null; then
+    has_nvidia_docker=true
+    if [[ -n ${image_tag_nvidia} ]]; then image_tag="${image_tag_nvidia}"; fi
+    if [[ -n ${build_trg_nvidia} ]]; then build_trg="${build_trg_nvidia}"; fi
+fi
+
+# '-e', '--echo', '-E', '--echo-only'
+# debug mode to display the A command to be executed
+echo_cmd=
+setx_cmd=
+if read_arg E echo-only none; then echo_cmd="echo + ";
+elif read_arg e echo none; then setx_cmd="set -x";
+fi
+
+# '-u', '--user'
+# login as current user
+home=/root
+if read_arg u user option; then
+    run_opts+=("-v" "/etc/group:/etc/group:ro" "-v" "/etc/passwd:/etc/passwd:ro" "-u" "$(id -u):$(id -g)")
+    if ${has_opt_arg}; then
+        home="${opt_arg}"
+        run_opts+=("-e" "HOME=${home}")
+    else
+        home="/home/$(id -un)"
+    fi
+fi
+# expland '@{HOME}' and '@{USER}'
+for ((i=0; i<${#volumes[@]}; i++)); do
+    volumes[$i]="${volumes[i]//@\{HOME\}/${home}}"
+    volumes[$i]="${volumes[i]//@\{USER\}/$(id -un)}"
+done
+
+# '--disable-vol'
+# disable default volume options
+if read_arg ? disable-vol none; then volumes=(); fi
+
+# '-m', '--mintty'
+# for Cygwin and MinGW
+winpty_cmd=
+if read_arg m mintty none; then
+    winpty_cmd=winpty
+    for ((i = 0; i < ${#run_cmd[@]}; i++)); do run_cmd[$i]="${run_cmd[$i]//\//\/\/}"; done
+    for ((i = 0; i < ${#volumes[@]}; i++)); do volumes[$i]="${volumes[$i]//\//\/\/}"; done
+fi
+
+# '--rm', '-i', '--interactive', '-t', '--tty', '-d', '--detach', '--disable-itd'
+itd=
+if   read_arg ? rm none;          then run_opts+=("--rm"); fi
+if   read_arg i interactive none; then itd=${itd}i; fi
+if   read_arg t tty none;         then itd=${itd}t; fi
+if   read_arg d detach none;      then itd=${itd}d; fi
+if ! read_arg ? disable-itd none; then
+    run_opts+=("-${itd:-itd}")
+elif [[ -n ${itd} ]]; then
+    run_opts+=("-${itd}")
+fi
+
+# '-x', '--x11'
+# x11 options
+if read_arg x x11 none; then
+    if   ${has_nvidia_docker};                      then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix" "--gpus" "all");
+    elif [[ $(uname -s | cut -c 1-5) == 'Linux' ]]; then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix");
+    elif [[ $(uname -s | cut -c 1-5) == 'MINGW' ]]; then run_opts+=("-e" "DISPLAY=host.docker.internal");
+    elif [[ $(uname -s) == "Darwin" ]];             then run_opts+=("-e" "DISPLAY=host.docker.internal");
+    else
+        printerror "-x/--x11: Could not detect your platform."
+    fi
+fi
+
+# '-b', '--build', '-B', '--build-only'
+build_only=false
+build=false
+if read_arg b build none; then build=true; fi
+if read_arg B build-only none; then build_only=true; fi
+
+# '--no-buildkit'
+# use buildkit feature?
+buildkit_cmd="env DOCKER_BUILDKIT=1"
+if read_arg ? no-buildkit none; then buildkit_cmd=; fi
+
+
+# build!
+if ${build} || ${build_only} || [[ ${#bld_opts[@]} -gt 0 ]] || [[ -z "$(${docker_cmd} images -q ${image_tag})" ]]; then
+    # setup docker build options
+    bld_opts=("-t" "${image_tag}" "${bld_opts[@]+"${bld_opts[@]}"}")
+    if [[ -n ${build_trg} ]]; then
+        bld_opts=("--target" "${build_trg}" "${bld_opts[@]+"${bld_opts[@]}"}")
+    fi
+    # execute build
+    ${setx_cmd}
+    ${echo_cmd} ${buildkit_cmd} ${winpty_cmd} ${docker_cmd} build "${bld_opts[@]+"${bld_opts[@]}"}" "${build_ctx}"
+    { set +x; } 2>/dev/null
+    if ${build_only}; then exit 0; fi
+fi
+
+# volumes
+for vol in "${volumes[@]+"${volumes[@]}"}"; do
+    run_opts+=("-v" "${vol}")
+done
+
+# run!
+set +e
+${setx_cmd}
+${echo_cmd} ${winpty_cmd} ${docker_cmd} run "${run_opts[@]+"${run_opts[@]}"}" "${image_tag}" "${run_cmd[@]+"${run_cmd[@]}"}"
+{ ret=$?; set +x; } 2>/dev/null
+set -e
+
+if [[ ${ret} -ne 0 ]] && [[ -z ${winpty_cmd} ]] && [[ $(uname -s | cut -c 1-5) == "MINGW" ]]; then
+    echo "---"
+    printerror "warning: Failed to run? Try '-m' or '--mintty' option."
+fi
