@@ -31,6 +31,7 @@ function main() {
     read_config build_ctx        false
     read_config volumes          true
     read_config run_cmd          true
+    # replace 
 
     # parse argument
     # - args[]:     option and arguments for this script
@@ -38,6 +39,15 @@ function main() {
     # - run_args[]: option and arguments for 'docker run' command
     # - bld_args[]: option and arguments for 'docker build' command
     parse_args "$@"
+
+    # check if the 'nvidia-docker' command exists
+    has_nvidia_docker=false
+    if command -v nvidia-docker > /dev/null; then
+        has_nvidia_docker=true
+        if [[ -n ${image_tag_nvidia} ]]; then image_tag="${image_tag_nvidia}"; fi
+        if [[ -n ${build_trg_nvidia} ]]; then build_trg="${build_trg_nvidia}"; fi
+    fi
+
 
     # '-h', '--help'
     # display help text
@@ -51,13 +61,123 @@ function main() {
         docker_cmd=${opt_arg}
     fi
 
+    # '-e', '--echo', '-E', '--echo-only'
+    # debug mode to display the A command to be executed
+    echo_cmd=
+    setx_cmd=
+    if read_arg E echo-only none; then echo_cmd="echo + ";
+    elif read_arg e echo none; then setx_cmd="set -x";
+    fi
+
+    # '-u', '--user'
+    # login as current user
+    home=/root
+    if read_arg u user option; then
+        run_opts+=("-v" "/etc/group:/etc/group:ro" "-v" "/etc/passwd:/etc/passwd:ro" "-u" "$(id -u):$(id -g)")
+        if ${has_opt_arg}; then
+            home="${opt_arg}"
+            run_opts+=("-e" "HOME=${home}")
+        else
+            home="/home/$(id -un)"
+        fi
+    fi
+    # expland '@{HOME}' and '@{USER}'
+    for ((i=0; i<${#volumes[@]}; i++)); do
+        volumes[$i]="${volumes[i]//@\{HOME\}/${home}}"
+        volumes[$i]="${volumes[i]//@\{USER\}/$(id -un)}"
+    done
+
+    # '--disable-vol'
+    # disable default volume options
+    if read_arg ? disable-vol none; then volumes=(); fi
+
+    # '-m', '--mintty'
+    # for Cygwin and MinGW
+    winpty_cmd=
+    if read_arg m mintty none; then
+        winpty_cmd=winpty
+        for ((i = 0; i < ${#run_cmd[@]}; i++)); do run_cmd[$i]="${run_cmd[$i]//\//\/\/}"; done
+        for ((i = 0; i < ${#volumes[@]}; i++)); do volumes[$i]="${volumes[$i]//\//\/\/}"; done
+    fi
+
+    # '--rm', '-i', '--interactive', '-t', '--tty', '-d', '--detach', '--disable-itd'
+    itd=
+    if   read_arg ? rm none;          then run_opts+=("--rm"); fi
+    if   read_arg i interactive none; then itd=${itd}i; fi
+    if   read_arg t tty none;         then itd=${itd}t; fi
+    if   read_arg d detach none;      then itd=${itd}d; fi
+    if ! read_arg ? disable-itd none; then
+        run_opts+=("-${itd:-itd}")
+    elif [[ -n ${itd} ]]; then
+        run_opts+=("-${itd}")
+    fi
+
+    # '-x', '--x11'
+    # x11 options
+    if read_arg x x11 none; then
+        if   ${has_nvidia_docker};                      then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix" "--gpus" "all");
+        elif [[ $(uname -s | cut -c 1-5) == 'Linux' ]]; then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix");
+        elif [[ $(uname -s | cut -c 1-5) == 'MINGW' ]]; then run_opts+=("-e" "DISPLAY=host.docker.internal");
+        elif [[ $(uname -s) == "Darwin" ]];             then run_opts+=("-e" "DISPLAY=host.docker.internal");
+        else
+            printerror "-x/--x11: Could not detect your platform."
+        fi
+    fi
+
+    # '-b', '--build', '-B', '--build-only'
+    build_only=false
+    build=false
+    if read_arg b build none; then build=true; fi
+    if read_arg B build-only none; then build_only=true; fi
+
+    # '--no-buildkit'
+    # use buildkit feature?
+    buildkit_cmd="env DOCKER_BUILDKIT=1"
+    if read_arg ? no-buildkit none; then buildkit_cmd=; fi
+
+
+    # build!
+    if ${build} || ${build_only} || [[ ${#bld_opts[@]} -gt 0 ]] || [[ -z "$(${docker_cmd} images -q ${image_tag})" ]]; then
+        # setup docker build options
+        bld_opts=("-t" "${image_tag}" "${bld_opts[@]+"${bld_opts[@]}"}")
+        if [[ -n ${build_trg} ]]; then
+            bld_opts=("--target" "${build_trg}" "${bld_opts[@]+"${bld_opts[@]}"}")
+        fi
+        # execute build
+        ${setx_cmd}
+        ${echo_cmd} ${buildkit_cmd} ${winpty_cmd} ${docker_cmd} build "${bld_opts[@]+"${bld_opts[@]}"}" "${build_ctx}"
+        { set +x; } 2>/dev/null
+        if ${build_only}; then exit 0; fi
+    fi
+
+    # volumes
+    for vol in "${volumes[@]+"${volumes[@]}"}"; do
+        run_opts+=("-v" "${vol}")
+    done
+
+    # run!
+    set +e
+    ${setx_cmd}
+    ${echo_cmd} ${winpty_cmd} ${docker_cmd} run "${run_opts[@]+"${run_opts[@]}"}" "${image_tag}" "${run_cmd[@]+"${run_cmd[@]}"}"
+    { ret=$?; set +x; } 2>/dev/null
+    set -e
+
+    if [[ ${ret} -ne 0 ]] && [[ -z ${winpty_cmd} ]] && [[ $(uname -s | cut -c 1-5) == "MINGW" ]]; then
+        echo "---"
+        printerror "warning: Failed to run? Try '-m' or '--mintty' option."
+    fi
+
 }
 
+# Reads configs from 'launch_dev_container.cfg'.
+# @param $1 param name to read / variable name to save
+# @param $2 'true' if the param is array, false otherwise
+# @return 0
 function read_config() {
     local config_file="${here}/launch_dev_container.cfg"
     local i=0
     if [[ ! -f ${config_file} ]]; then
-        : # TODO: fatal error
+        print_fatal_error "launch_dev_container.cfg: file not found."
     fi
     # initialize config
     if $2; then eval $1=\(\); else eval $1=""; fi
@@ -72,7 +192,10 @@ function read_config() {
     return 0
 }
 
-# separate all arguments into args, cmds, run_opts, bld_opts
+# Separates all arguments into $args, $run_cmd, $run_opts, $bld_opts.
+# If one or more arguments are specified following a single hyphen, $run_cmd is overwritten.
+# $ ./launch_dev_container <args> - <run_cmd> -- <run_opts> --- <bld_opts>
+# @return 0
 function parse_args() {
     local tmp_cmd
     local sep=0
@@ -112,9 +235,9 @@ has_opt_arg=
 # @return 0 if the $1 or $2 is in arguments, 1 other wise
 function read_arg() {
     # check specification
-    if [[ ! $1 =~ ^[a-zA-Z\?]$ ]];                      then echo "the 1st argument of read_arg() must be [a-zA-Z]. (please contact developer)";                   exit 127; fi
-    if [[ ! $2 =~ ^(\?|[a-zA-Z0-9][\-_a-zA-Z0-9]*)$ ]]; then echo "the 2nd argument of read_arg() must be [a-zA-Z0-9][\-_a-zA-Z0-9]*. (please contact developer)"; exit 127; fi
-    if [[ ! $3 =~ ^(none|option|required)$ ]];          then echo "the 3rd argument of read_arg() must be (none|option|required). (please contact developer)";     exit 127; fi
+    if [[ ! $1 =~ ^[a-zA-Z\?]$ ]];                      then print_fatal_error "the 1st argument of read_arg() must be [a-zA-Z]."; fi
+    if [[ ! $2 =~ ^(\?|[a-zA-Z0-9][\-_a-zA-Z0-9]*)$ ]]; then print_fatal_error "the 2nd argument of read_arg() must be [a-zA-Z0-9][\-_a-zA-Z0-9]*."; fi
+    if [[ ! $3 =~ ^(none|option|required)$ ]];          then print_fatal_error "the 3rd argument of read_arg() must be (none|option|required)."; fi
     # init variables
     opt_arg=
     has_opt_arg=false
@@ -155,6 +278,7 @@ function read_arg() {
     return 1
 }
 
+# prints usage text
 function print_usage() {
     local usage_text
     cat << EOF
@@ -166,6 +290,7 @@ EOF
     return 0
 }
 
+# prints help text according to the system language ($LANG).
 function print_help() {
     if [ "$(echo ${LANG}  | cut -c 1-5)" != 'ja_JP' ]; then
         cat << EOF
@@ -231,6 +356,12 @@ function print_error() {
     exit 1
 }
 
+function print_fatal_error() {
+    if [ $# -ge 1 ]; then echo "fatal error: $1"; fi
+    echo "Please contact developer."
+    echo "Exit."
+    exit 127
+}
 
 main "$@"
 exit 0
@@ -266,133 +397,3 @@ fi
 
 
 
-# # separate all arguments into args, cmds, run_opts, bld_opts
-# args=()     # arguments for this script
-# cmds=()     # command arguments for the container
-# run_opts=() # options for the 'docker run' command
-# bld_opts=() # options for the 'docker build' command
-# for arg in "$@"; do
-#     if   [[ ${arg} == "-" ]];   then sep=1;
-#     elif [[ ${arg} == "--" ]];  then sep=2;
-#     elif [[ ${arg} == "---" ]]; then sep=3;
-#     elif [[ ${sep-0} -eq 0 ]]; then args+=("${arg}");
-#     elif [[ ${sep-0} -eq 1 ]]; then cmds+=("${arg}");
-#     elif [[ ${sep-0} -eq 2 ]]; then run_opts+=("${arg}");
-#     elif [[ ${sep-0} -eq 3 ]]; then bld_opts+=("${arg}");
-#     fi
-# done
-# nargs=${#args[@]}
-
-# check if the 'nvidia-docker' command exists
-has_nvidia_docker=false
-if command -v nvidia-docker > /dev/null; then
-    has_nvidia_docker=true
-    if [[ -n ${image_tag_nvidia} ]]; then image_tag="${image_tag_nvidia}"; fi
-    if [[ -n ${build_trg_nvidia} ]]; then build_trg="${build_trg_nvidia}"; fi
-fi
-
-# '-e', '--echo', '-E', '--echo-only'
-# debug mode to display the A command to be executed
-echo_cmd=
-setx_cmd=
-if read_arg E echo-only none; then echo_cmd="echo + ";
-elif read_arg e echo none; then setx_cmd="set -x";
-fi
-
-# '-u', '--user'
-# login as current user
-home=/root
-if read_arg u user option; then
-    run_opts+=("-v" "/etc/group:/etc/group:ro" "-v" "/etc/passwd:/etc/passwd:ro" "-u" "$(id -u):$(id -g)")
-    if ${has_opt_arg}; then
-        home="${opt_arg}"
-        run_opts+=("-e" "HOME=${home}")
-    else
-        home="/home/$(id -un)"
-    fi
-fi
-# expland '@{HOME}' and '@{USER}'
-for ((i=0; i<${#volumes[@]}; i++)); do
-    volumes[$i]="${volumes[i]//@\{HOME\}/${home}}"
-    volumes[$i]="${volumes[i]//@\{USER\}/$(id -un)}"
-done
-
-# '--disable-vol'
-# disable default volume options
-if read_arg ? disable-vol none; then volumes=(); fi
-
-# '-m', '--mintty'
-# for Cygwin and MinGW
-winpty_cmd=
-if read_arg m mintty none; then
-    winpty_cmd=winpty
-    for ((i = 0; i < ${#run_cmd[@]}; i++)); do run_cmd[$i]="${run_cmd[$i]//\//\/\/}"; done
-    for ((i = 0; i < ${#volumes[@]}; i++)); do volumes[$i]="${volumes[$i]//\//\/\/}"; done
-fi
-
-# '--rm', '-i', '--interactive', '-t', '--tty', '-d', '--detach', '--disable-itd'
-itd=
-if   read_arg ? rm none;          then run_opts+=("--rm"); fi
-if   read_arg i interactive none; then itd=${itd}i; fi
-if   read_arg t tty none;         then itd=${itd}t; fi
-if   read_arg d detach none;      then itd=${itd}d; fi
-if ! read_arg ? disable-itd none; then
-    run_opts+=("-${itd:-itd}")
-elif [[ -n ${itd} ]]; then
-    run_opts+=("-${itd}")
-fi
-
-# '-x', '--x11'
-# x11 options
-if read_arg x x11 none; then
-    if   ${has_nvidia_docker};                      then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix" "--gpus" "all");
-    elif [[ $(uname -s | cut -c 1-5) == 'Linux' ]]; then run_opts+=("-e" "DISPLAY" "-v" "/tmp/.X11-unix:/tmp/.X11-unix");
-    elif [[ $(uname -s | cut -c 1-5) == 'MINGW' ]]; then run_opts+=("-e" "DISPLAY=host.docker.internal");
-    elif [[ $(uname -s) == "Darwin" ]];             then run_opts+=("-e" "DISPLAY=host.docker.internal");
-    else
-        printerror "-x/--x11: Could not detect your platform."
-    fi
-fi
-
-# '-b', '--build', '-B', '--build-only'
-build_only=false
-build=false
-if read_arg b build none; then build=true; fi
-if read_arg B build-only none; then build_only=true; fi
-
-# '--no-buildkit'
-# use buildkit feature?
-buildkit_cmd="env DOCKER_BUILDKIT=1"
-if read_arg ? no-buildkit none; then buildkit_cmd=; fi
-
-
-# build!
-if ${build} || ${build_only} || [[ ${#bld_opts[@]} -gt 0 ]] || [[ -z "$(${docker_cmd} images -q ${image_tag})" ]]; then
-    # setup docker build options
-    bld_opts=("-t" "${image_tag}" "${bld_opts[@]+"${bld_opts[@]}"}")
-    if [[ -n ${build_trg} ]]; then
-        bld_opts=("--target" "${build_trg}" "${bld_opts[@]+"${bld_opts[@]}"}")
-    fi
-    # execute build
-    ${setx_cmd}
-    ${echo_cmd} ${buildkit_cmd} ${winpty_cmd} ${docker_cmd} build "${bld_opts[@]+"${bld_opts[@]}"}" "${build_ctx}"
-    { set +x; } 2>/dev/null
-    if ${build_only}; then exit 0; fi
-fi
-
-# volumes
-for vol in "${volumes[@]+"${volumes[@]}"}"; do
-    run_opts+=("-v" "${vol}")
-done
-
-# run!
-set +e
-${setx_cmd}
-${echo_cmd} ${winpty_cmd} ${docker_cmd} run "${run_opts[@]+"${run_opts[@]}"}" "${image_tag}" "${run_cmd[@]+"${run_cmd[@]}"}"
-{ ret=$?; set +x; } 2>/dev/null
-set -e
-
-if [[ ${ret} -ne 0 ]] && [[ -z ${winpty_cmd} ]] && [[ $(uname -s | cut -c 1-5) == "MINGW" ]]; then
-    echo "---"
-    printerror "warning: Failed to run? Try '-m' or '--mintty' option."
-fi
