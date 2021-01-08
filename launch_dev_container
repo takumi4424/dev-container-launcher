@@ -1,5 +1,5 @@
 #!/bin/bash -eu
-#
+
 # Copyright (c) 2020 Takumi Kodama
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,15 +31,8 @@ function main() {
     read_config build_ctx        false
     read_config volumes          true
     read_config run_cmd          true
-    # replace 
-
-    # parse argument
-    # - args[]:     option and arguments for this script
-    # - run_cmd[]:  replace ${run_cmd[@]} if [- [RUN_COMMAND [ARG]...]] are given
-    # - run_args[]: option and arguments for 'docker run' command
-    # - bld_args[]: option and arguments for 'docker build' command
-    parse_args "$@"
-
+    # replace if empty
+    if [[ -z ${build_ctx} ]]; then build_ctx="${here}"; fi
     # check if the 'nvidia-docker' command exists
     has_nvidia_docker=false
     if command -v nvidia-docker > /dev/null; then
@@ -47,6 +40,14 @@ function main() {
         if [[ -n ${image_tag_nvidia} ]]; then image_tag="${image_tag_nvidia}"; fi
         if [[ -n ${build_trg_nvidia} ]]; then build_trg="${build_trg_nvidia}"; fi
     fi
+
+
+    # parse argument
+    # - args[]:     option and arguments for this script
+    # - run_cmd[]:  replace ${run_cmd[@]} if [- [RUN_COMMAND [ARG]...]] are given
+    # - run_opts[]: option and arguments for 'docker run' command
+    # - bld_opts[]: option and arguments for 'docker build' command
+    parse_args "$@"
 
 
     # '-h', '--help'
@@ -65,27 +66,9 @@ function main() {
     # debug mode to display the A command to be executed
     echo_cmd=
     setx_cmd=
-    if read_arg E echo-only none; then echo_cmd="echo + ";
-    elif read_arg e echo none; then setx_cmd="set -x";
+    if   read_arg E echo-only none; then echo_cmd="echo + ";
+    elif read_arg e echo      none; then setx_cmd="set -x";
     fi
-
-    # '-u', '--user'
-    # login as current user
-    home=/root
-    if read_arg u user option; then
-        run_opts+=("-v" "/etc/group:/etc/group:ro" "-v" "/etc/passwd:/etc/passwd:ro" "-u" "$(id -u):$(id -g)")
-        if ${has_opt_arg}; then
-            home="${opt_arg}"
-            run_opts+=("-e" "HOME=${home}")
-        else
-            home="/home/$(id -un)"
-        fi
-    fi
-    # expland '@{HOME}' and '@{USER}'
-    for ((i=0; i<${#volumes[@]}; i++)); do
-        volumes[$i]="${volumes[i]//@\{HOME\}/${home}}"
-        volumes[$i]="${volumes[i]//@\{USER\}/$(id -un)}"
-    done
 
     # '--disable-vol'
     # disable default volume options
@@ -149,6 +132,33 @@ function main() {
         { set +x; } 2>/dev/null
         if ${build_only}; then exit 0; fi
     fi
+
+    # check default user name and home of the container
+    uname=$(docker inspect --format='{{.Config.User}}' ${image_tag})
+    uhome="/home/${uname}"
+    if [[ -z ${uname} ]]; then
+        uname="root"
+        uhome="/root"
+    fi
+
+    # '-u', '--user'
+    # login as current user
+    if read_arg u user option; then
+        uname="$(id -un)"
+        uhome="/home/${uname}"
+        run_opts+=("-v" "/etc/group:/etc/group:ro" "-v" "/etc/passwd:/etc/passwd:ro" "-u" "$(id -u):$(id -g)")
+        if ${has_opt_arg}; then
+            uhome="${opt_arg}"
+            run_opts+=("-e" "HOME=${uhome}")
+        fi
+    fi
+
+    # expland '@{HERE}', '@{HOME}' and '@{USER}'
+    for ((i=0; i<${#volumes[@]}; i++)); do
+        volumes[$i]="${volumes[i]//@\{HERE\}/${here}}"
+        volumes[$i]="${volumes[i]//@\{HOME\}/${uhome}}"
+        volumes[$i]="${volumes[i]//@\{USER\}/${uname}}"
+    done
 
     # volumes
     for vol in "${volumes[@]+"${volumes[@]}"}"; do
