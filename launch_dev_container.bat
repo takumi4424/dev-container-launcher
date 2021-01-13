@@ -259,22 +259,22 @@ if %OSLanguage% equ 1041 goto :l_help_text_ja
     echo -x, --x11          Add options to connect with host's X11 server
     exit /b 0
 :l_help_text_ja
-    echo ï¿½Jï¿½ï¿½ï¿½Â‹ï¿½ï¿½Rï¿½ï¿½ï¿½eï¿½iï¿½ð—§‚ï¿½ï¿½ã‚°ï¿½Ü‚ï¿½ï¿½D
+    echo ŠJ”­ŠÂ‹«ƒRƒ“ƒeƒi‚ð—§‚¿ã‚°‚Ü‚·D
     echo.
-    echo -h, --help         ï¿½ï¿½ï¿½Ìƒwï¿½ï¿½ï¿½vï¿½eï¿½Lï¿½Xï¿½gï¿½ï¿½\ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo -   [CMD [ARG]...] docker run ... ^<image^> CMD ARG...
-    echo --  [RUN_OPT]...   docker run ... RUN_OPT... ^<image^> ...
-    echo --- [BLD_OPT]...   docker build ... BLD_OPT... -t ^<image^> ...
-    echo -b, --build        ï¿½Cï¿½ï¿½ï¿½[ï¿½Wï¿½Ìƒrï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo -B, --build-only   ï¿½Cï¿½ï¿½ï¿½[ï¿½Wï¿½Ìƒrï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Rï¿½ï¿½ï¿½eï¿½iï¿½Ì‹Nï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½Lï¿½bï¿½vï¿½ï¿½ï¿½Ü‚ï¿½
-    echo -d, --detach       ï¿½oï¿½bï¿½Nï¿½Oï¿½ï¿½ï¿½Eï¿½ï¿½ï¿½hï¿½ÅŽï¿½ï¿½sï¿½ï¿½ï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½Rï¿½ï¿½ï¿½eï¿½iIDï¿½ï¿½\ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo     --disable-itd  ï¿½fï¿½tï¿½Hï¿½ï¿½ï¿½gï¿½Å’Ç‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½'-itd'ï¿½Iï¿½vï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½ð–³Œï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo     --disable-vol  ï¿½fï¿½tï¿½Hï¿½ï¿½ï¿½gï¿½Å’Ç‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½{ï¿½ï¿½ï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½Iï¿½vï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½ð–³Œï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo -e, --echo         ï¿½ï¿½ï¿½sï¿½ï¿½ï¿½ï¿½Rï¿½}ï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ‹ï¿½ï¿½É•\ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½D
-    echo -E, --echo-only    ï¿½Rï¿½}ï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½sï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É•\ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½^(ï¿½fï¿½oï¿½bï¿½Oï¿½p^)
-    echo -i, --interactive  ï¿½Rï¿½ï¿½ï¿½eï¿½iï¿½ï¿½STDINï¿½ÉƒAï¿½^ï¿½bï¿½`ï¿½ï¿½ï¿½ï¿½
-    echo     --no-buildkit  ï¿½rï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½'DOCKER_BUILDKIT=1'ï¿½ð–³Œï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
-    echo     --rm           ï¿½Rï¿½ï¿½ï¿½eï¿½iï¿½ÌŽï¿½ï¿½sï¿½ï¿½ÉŽï¿½ï¿½ï¿½ï¿½Åíœï¿½ï¿½ï¿½Ü‚ï¿½
-    echo -t, --tty          ï¿½^ï¿½ï¿½ï¿½^ï¿½[ï¿½~ï¿½iï¿½ï¿½^(pseudo-TTY^)ï¿½ï¿½ï¿½ï¿½ï¿½è“–ï¿½Ä‚Ü‚ï¿½
-    echo -x, --x11          ï¿½zï¿½Xï¿½gï¿½ï¿½X11ï¿½Tï¿½[ï¿½oï¿½ÉÚ‘ï¿½ï¿½ï¿½ï¿½é‚½ï¿½ß‚ÌƒIï¿½vï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç‰ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½
+    echo   -h, --help         ‚±‚Ìƒwƒ‹ƒvƒeƒLƒXƒg‚ð•\Ž¦‚µ‚Ü‚·
+    echo   -   [CMD [ARG]...] docker run ... ^<image^> CMD ARG...
+    echo   --  [RUN_OPT]...   docker run ... RUN_OPT... ^<image^> ...
+    echo   --- [BLD_OPT]...   docker build ... BLD_OPT... -t ^<image^> ...
+    echo   -b, --build        ƒCƒ[ƒW‚Ìƒrƒ‹ƒh‚ð‹­§‚µ‚Ü‚·
+    echo   -B, --build-only   ƒCƒ[ƒW‚Ìƒrƒ‹ƒh‚ð‹­§‚µCƒRƒ“ƒeƒi‚Ì‹N“®‚ðƒXƒLƒbƒv‚µ‚Ü‚·
+    echo   -d, --detach       ƒoƒbƒNƒOƒ‰ƒEƒ“ƒh‚ÅŽÀs‚µV‚µ‚¢ƒRƒ“ƒeƒiID‚ð•\Ž¦‚µ‚Ü‚·
+    echo       --disable-itd  ƒfƒtƒHƒ‹ƒg‚Å’Ç‰Á‚³‚ê‚é'-itd'ƒIƒvƒVƒ‡ƒ“‚ð–³Œø‰»‚µ‚Ü‚·
+    echo       --disable-vol  ƒfƒtƒHƒ‹ƒg‚Å’Ç‰Á‚³‚ê‚éƒ{ƒŠƒ…[ƒ€ƒIƒvƒVƒ‡ƒ“‚ð–³Œø‰»‚µ‚Ü‚·
+    echo   -e, --echo         ŽÀs‚·‚éƒRƒ}ƒ“ƒh‚ðˆø”‚Æ‹¤‚É•\Ž¦‚µ‚Ü‚·D
+    echo   -E, --echo-only    ƒRƒ}ƒ“ƒh‚ðŽÀs‚·‚é‘ã‚í‚è‚É•\Ž¦‚µ‚Ü‚·^(ƒfƒoƒbƒO—p^)
+    echo   -i, --interactive  ƒRƒ“ƒeƒi‚ÌSTDIN‚ÉƒAƒ^ƒbƒ`‚·‚é
+    echo       --no-buildkit  ƒrƒ‹ƒhŽž‚Ì'DOCKER_BUILDKIT=1'‚ð–³Œø‰»‚µ‚Ü‚·
+    echo       --rm           ƒRƒ“ƒeƒi‚ÌŽÀsŒã‚ÉŽ©“®‚Åíœ‚µ‚Ü‚·
+    echo   -t, --tty          ‹^Ž—ƒ^[ƒ~ƒiƒ‹^(pseudo-TTY^)‚ðŠ„‚è“–‚Ä‚Ü‚·
+    echo   -x, --x11          ƒzƒXƒg‚ÌX11ƒT[ƒo‚ÉÚ‘±‚·‚é‚½‚ß‚ÌƒIƒvƒVƒ‡ƒ“‚ð’Ç‰Á‚µ‚Ü‚·
     exit /b 0
