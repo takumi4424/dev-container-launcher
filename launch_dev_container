@@ -20,6 +20,17 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# Development Container start up script for UNIX
+#
+# If you want to use -u or --user option, you should add
+# - 'sudo' installation command
+# - add your group or user to /etc/sudoers
+# into your Dockerfile
+# For example:
+#     RUN apt install -y sudo \
+#      && echo "ALL ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# (Please note that 'ALL' has a security risk.)
+
 here="$(cd $(dirname $0); pwd)"
 
 function main() {
@@ -375,35 +386,3 @@ function print_fatal_error() {
 
 main "$@"
 exit 0
-
-################################################################################
-##                                                                            ##
-## Development Container start up script for UNIX                             ##
-##                                                                            ##
-## If you want to use -u or --user option, you should add:                    ##
-##     RUN <'sudo' installation command>                                      ##
-##     RUN echo "%<your group> ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers        ##
-## into your Dockerfile.                                                      ##
-## Examples (install 'sudo'):                                                 ##
-##     RUN apt install -y sudo                                                ##
-##     RUN yum install -y sudo                                                ##
-##     RUN apk add sudo                                                       ##
-## Examples (add your group to sudoers):                                      ##
-##     RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers                ##
-##     RUN echo "%takumi ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers              ##
-##     RUN echo "ALL ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers                  ##
-## You can check which group you belong to by running:                        ##
-##     $ groups                                                               ##
-## in your host machine.                                                      ##
-##                                                                            ##
-################################### Configs ####################################
-################################################################################
-
-if [[ -z ${image_tag-} ]]; then
-    echo "error: image_tag must not be empty."
-    exit 127
-fi
-
-
-
-
