@@ -193,10 +193,10 @@ function read_config() {
     if $2; then eval $1=\(\); else eval $1=""; fi
     # read all line starting with '$1='
     while read line; do
-        if $2; then
-            eval $1+=\(\"\${line:$((${#1}+1))}\"\)
-        else
-            eval $1=\"\${line:$((${#1}+1))}\"
+        local tmp="${line:$((${#1}+1))}"
+        if [[ -z ${tmp} ]]; then :
+        elif $2;            then eval $1+=\(\"\${tmp}\"\)
+        else                     eval $1=\"\${tmp}\"
         fi
     done < <(iconv -f sjis "${config_file}" | grep -E "^$1=")
     return 0
