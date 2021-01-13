@@ -1,2 +1,1 @@
 FROM ubuntu
-USER hogehoge
