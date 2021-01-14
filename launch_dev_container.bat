@@ -1,6 +1,3 @@
-@echo off
-setlocal enabledelayedexpansion
-
 :: MIT License
 ::
 :: Copyright (c) 2020 Takumi Kodama
@@ -23,36 +20,27 @@ setlocal enabledelayedexpansion
 :: OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 :: SOFTWARE.
 
-REM ############################################################################
-REM                                                                           ##
-REM Development Container start up script for Windows                         ##
-REM                                                                           ##
-REM ############################################################################
-call :f_read_config image_tag
-call :f_read_config build_trg
-call :f_read_config build_ctx
-call :f_read_config volumes true
-call :f_read_config run_cmd
+:: Development Container start up script for Windows
 
-@REM separate all arguments into args, cmds, run_opts, bld_opts
-set nargs=0
-set cmds=
-set run_opts=
-set bld_opts=
-set sep=0
-:S_ARGPARSE
-    set _=%~1
-    set __=%1
-    shift
-    if "%_%"==""                                              goto :E_ARGPARSE
-    if "%_%"=="-"   set sep=1&&                               goto :S_ARGPARSE
-    if "%_%"=="--"  set sep=2&&                               goto :S_ARGPARSE
-    if "%_%"=="---" set sep=3&&                               goto :S_ARGPARSE
-    if %sep% equ 0 set /a nargs+=1&& set args[%nargs%]=%__%&& goto :S_ARGPARSE
-    if %sep% equ 1 set cmds=%cmds% %__%&&                     goto :S_ARGPARSE
-    if %sep% equ 2 set run_opts=%run_opts% %__%&&             goto :S_ARGPARSE
-    if %sep% equ 3 set bld_opts=%bld_opts% %__%&&             goto :S_ARGPARSE
-:E_ARGPARSE
+@echo off
+setlocal enabledelayedexpansion
+:: get path containing this script
+set here=%~dp0
+set here=%here:~0,-1%
+
+:: read configs from launch_dev_container.cfg
+call :f_read_config image_tag false
+if %errorlevel% neq 0 exit /b %errorlevel%
+call :f_read_config build_trg false
+if %errorlevel% neq 0 exit /b %errorlevel%
+call :f_read_config build_ctx false
+if %errorlevel% neq 0 exit /b %errorlevel%
+call :f_read_config volumes   true
+if %errorlevel% neq 0 exit /b %errorlevel%
+call :f_read_config run_cmd   false
+if %errorlevel% neq 0 exit /b %errorlevel%
+:: replace if empty
+if "%build_ctx%"=="" set build_ctx=%here%
 
 @REM replace command and arguments
 if not defined cmds (
@@ -157,6 +145,88 @@ set i=0
 exit /b 0
 
 
+
+
+
+
+
+
+
+
+
+@REM @param %1 parameter/variable name to read/store
+@REM @param %2 true if the paramer is array
+:f_read_config
+    set rc_cfg_file=%here%\launch_dev_container.cfg
+    if not exist %rc_cfg_file% (
+        echo fatal error: launch_dev_container.cfg: file not found.
+        goto :l_print_fatal_error
+    )
+    if "%1"=="" (
+        echo fatal error: config name must not be empty.
+        goto :l_print_fatal_error
+    )
+    :: calculates the length to be cut from the lines read from the file
+    call :f_strlen %1 rc_cutlen
+    set /a rc_cutlen+=1
+    :: index of the array
+    set rc_j=0
+    for /f "usebackq" %%A in (`findstr /r "^%1=.*" %rc_cfg_file%`) do (
+        set rc_tmp=%%A
+        set rc_tmp=!rc_tmp:~%rc_cutlen%!
+        if "%2"=="true" (
+            set %1[!rc_j!]=!rc_tmp!
+        ) else (
+            set %1=!rc_tmp!
+        )
+        set /a rc_j+=1
+    )
+    exit /b 0
+
+:: Check string length of the first argument.
+:: If the second argument is given as a variable name, the length will be stored into the variable.
+:: Otherwise, it will be stored into %f_strlen_return%
+:: @param %1 string to be checked
+:: @param %2 variable name for storing the result (option)
+:: @return 0
+:f_strlen
+    if "%2"=="" (
+        set f_strlen_varname=f_strlen_return
+    ) else (
+        set f_strlen_varname=%2
+    )
+    set f_strlen_tmp=%1
+    set %f_strlen_varname%=0
+    :s_loop_f_strlen
+        if "%f_strlen_tmp%"=="" goto :e_loop_f_strlen
+        set f_strlen_tmp=%f_strlen_tmp:~1%
+        set /a %f_strlen_varname%+=1
+        goto :s_loop_f_strlen
+    :e_loop_f_strlen
+    exit /b 0
+
+:f_parse_args
+    :: separate all arguments into args, cmds, run_opts, bld_opts
+    set nargs=0
+    set cmds=
+    set run_opts=
+    set bld_opts=
+    set sep=0
+    :S_ARGPARSE
+        set _=%~1
+        set __=%1
+        shift
+        if "%_%"==""                                              goto :E_ARGPARSE
+        if "%_%"=="-"   set sep=1&&                               goto :S_ARGPARSE
+        if "%_%"=="--"  set sep=2&&                               goto :S_ARGPARSE
+        if "%_%"=="---" set sep=3&&                               goto :S_ARGPARSE
+        if %sep% equ 0 set /a nargs+=1&& set args[%nargs%]=%__%&& goto :S_ARGPARSE
+        if %sep% equ 1 set cmds=%cmds% %__%&&                     goto :S_ARGPARSE
+        if %sep% equ 2 set run_opts=%run_opts% %__%&&             goto :S_ARGPARSE
+        if %sep% equ 3 set bld_opts=%bld_opts% %__%&&             goto :S_ARGPARSE
+    :E_ARGPARSE
+    exit /b 0
+
 :f_read_arg
     setlocal
     set i=-1
@@ -176,59 +246,6 @@ exit /b 0
 
         goto :s_loop_f_read_arg
     :e_loop_f_read_arg
-    exit /b 1
-
-@REM @param %1 parameter/variable name to read/store
-@REM @param %2 true if the paramer is array
-:f_read_config
-    @REM check parameter/variable name
-    if "%1"=="" exit /b 127
-    @REM calculates the length to be cut from the lines read from the file
-    call :f_strlen %1 f_read_config_cutlen
-    set /a f_read_config_cutlen+=1
-    @REM index of the array
-    set f_read_config_j=0
-    for /f "usebackq" %%A in (`findstr /r "^%1%=.*" start_dev_container.cfg`) do (
-        set f_read_config_tmp=%%A
-        set f_read_config_tmp=!f_read_config_tmp:~%f_read_config_cutlen%!
-        if "%2"=="true" (
-            set %1[!f_read_config_j!]=!f_read_config_tmp!
-        ) else (
-            set %1=!f_read_config_tmp!
-        )
-        set /a f_read_config_j+=1
-    )
-    exit /b 0
-
-@REM Check string length of the first argument.
-@REM If the second argument is given as a variable name, the length will be stored into the variable.
-@REM Otherwise, it will be stored into %f_strlen_return%
-@REM @param %1 string to be checked
-@REM @param %2 variable name for storing the result (option)
-@REM @return 0
-:f_strlen
-    if "%2"=="" (
-        set f_strlen_varname=f_strlen_return
-    ) else (
-        set f_strlen_varname=%2
-    )
-    set f_strlen_tmp=%1
-    set %f_strlen_varname%=0
-    :s_loop_f_strlen
-        if "%f_strlen_tmp%"=="" goto :e_loop_f_strlen
-        set f_strlen_tmp=%f_strlen_tmp:~1%
-        set /a %f_strlen_varname%+=1
-        goto :s_loop_f_strlen
-    :e_loop_f_strlen
-    exit /b 0
-
-:l_print_error
-    echo See 'start_dev_container.bat --help'.
-    echo.
-    echo usage: start_dev_container.bat [OPTION]...
-    echo                                [- [RUN_COMMAND [ARG]...]]
-    echo                                [-- [RUN_OPTION]...]
-    echo                                [--- [BUILD_OPTION]...]
     exit /b 1
 
 :l_print_help
@@ -278,3 +295,25 @@ if %OSLanguage% equ 1041 goto :l_help_text_ja
     echo   -t, --tty          疑似ターミナル^(pseudo-TTY^)を割り当てます
     echo   -x, --x11          ホストのX11サーバに接続するためのオプションを追加します
     exit /b 0
+
+:: prints the given text and the usage text and exit with code 1.
+:: usage:
+::     echo error: message
+::     goto :l_print_error
+:l_print_error
+    echo See 'start_dev_container.bat --help'.
+    echo.
+    echo usage: start_dev_container.bat [OPTION]...
+    echo                                [- [RUN_COMMAND [ARG]...]]
+    echo                                [-- [RUN_OPTION]...]
+    echo                                [--- [BUILD_OPTION]...]
+    exit /b 1
+
+:: prints the given text and the usage text and exit with code 127.
+:: usage:
+::     echo fatal error: message
+::     goto :l_print_fatal_error
+:l_print_fatal_error
+    echo Please contact developer.
+    echo Exit.
+    exit /b 127
